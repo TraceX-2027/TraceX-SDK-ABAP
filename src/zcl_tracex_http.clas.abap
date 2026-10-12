@@ -36,6 +36,8 @@ CLASS zcl_tracex_http DEFINITION
         VALUE(rv_url) TYPE string .
 ENDCLASS.
 
+
+
 CLASS zcl_tracex_http IMPLEMENTATION.
 
   METHOD constructor.
@@ -44,8 +46,18 @@ CLASS zcl_tracex_http IMPLEMENTATION.
     me->mv_timeout_sec = COND i( WHEN iv_timeout_sec > 0 THEN iv_timeout_sec ELSE 3 ).
   ENDMETHOD.
 
+
   METHOD build_full_url.
     DATA(lv_url) = condense( val = me->mv_base_url ).
+
+    IF lv_url IS INITIAL.
+      lv_url = zcl_tracex_client=>co_default_base_url.
+    ENDIF.
+
+    IF lv_url CP '*/crashes' OR lv_url CP '*/crashes/'.
+      rv_url = lv_url.
+      RETURN.
+    ENDIF.
 
     IF lv_url CP '*/api/v1' OR lv_url CP '*/api/v1/'.
       IF substring( val = lv_url off = strlen( lv_url ) - 1 len = 1 ) = '/'.
@@ -62,6 +74,7 @@ CLASS zcl_tracex_http IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+
   METHOD send_payload.
     IF iv_json_payload IS INITIAL.
       RAISE EXCEPTION TYPE zcx_tracex_error
@@ -72,10 +85,19 @@ CLASS zcl_tracex_http IMPLEMENTATION.
 
     DATA(lv_target_url) = build_full_url( ).
 
+    DATA lo_http_client TYPE REF TO if_web_http_client.
+
     TRY.
         " 1. Create Cloud HTTP destination and client
         DATA(lo_destination) = cl_http_destination_provider=>create_by_url( lv_target_url ).
-        DATA(lo_http_client) = cl_web_http_client_manager=>create_by_http_destination( lo_destination ).
+        
+        " M3: Configure timeout on destination / client
+        TRY.
+            lo_destination->set_timeout( me->mv_timeout_sec ).
+          CATCH cx_root.
+        ENDTRY.
+
+        lo_http_client = cl_web_http_client_manager=>create_by_http_destination( lo_destination ).
 
         " 2. Configure request headers according to TraceX API Specification
         DATA(lo_request) = lo_http_client->get_http_request( ).
@@ -94,9 +116,10 @@ CLASS zcl_tracex_http IMPLEMENTATION.
             TRY.
                 /ui2/cl_json=>deserialize(
                   EXPORTING
-                    json = lo_response->get_text( )
+                    json        = lo_response->get_text( )
+                    pretty_name = /ui2/cl_json=>pretty_mode-low_case
                   CHANGING
-                    data = rs_response ).
+                    data        = rs_response ).
               CATCH cx_root.
                 rs_response-status = 'accepted'.
             ENDTRY.
@@ -135,17 +158,18 @@ CLASS zcl_tracex_http IMPLEMENTATION.
                 mv_error_detail = |TraceX Ingest failed with HTTP { ls_status-code }: { ls_status-reason }|.
         ENDCASE.
 
-        " Close connection cleanly
+        " Close connection cleanly on successful 202
         lo_http_client->close( ).
 
-      CATCH zcx_tracex_error INTO DATA(lx_tracex).
-        RAISE EXCEPTION lx_tracex.
+      CLEANUP INTO DATA(lx_cleanup).
+        " B4: Ensure socket teardown in all exception cases
+        IF lo_http_client IS BOUND.
+          TRY.
+              lo_http_client->close( ).
+            CATCH cx_root.
+          ENDTRY.
+        ENDIF.
 
-      CATCH cx_root INTO DATA(lx_unexpected).
-        RAISE EXCEPTION TYPE zcx_tracex_error
-          EXPORTING
-            textid          = zcx_tracex_error=>network_failure
-            mv_error_detail = |Network communication failed: { lx_unexpected->get_text( ) }|.
     ENDTRY.
   ENDMETHOD.
 

@@ -24,10 +24,9 @@ CLASS zcl_tracex_serializer DEFINITION
         category       TYPE string,
         action         TYPE string,
         target         TYPE string,
-        data           TYPE string,
+        data           TYPE REF TO data,
       END OF ty_breadcrumb,
 
-      tt_breadcrumbs    TYPE STANDARD TABLE OF ty_breadcrumb WITH DEFAULT KEY,
       ty_breadcrumbs_tt TYPE STANDARD TABLE OF ty_breadcrumb WITH DEFAULT KEY,
 
       BEGIN OF ty_crash_payload,
@@ -61,12 +60,10 @@ ENDCLASS.
 CLASS zcl_tracex_serializer IMPLEMENTATION.
 
   METHOD format_iso_timestamp.
-    DATA lv_ts TYPE timestamp.
-    DATA lv_char TYPE c LENGTH 14.
+    DATA lv_ts TYPE timestampl.
     GET TIME STAMP FIELD lv_ts.
-    lv_char = lv_ts.
-    " Strict ISO 8601 UTC format: YYYY-MM-DDTHH:MM:SSZ
-    rv_iso = |{ lv_char+0(4) }-{ lv_char+4(2) }-{ lv_char+6(2) }T{ lv_char+8(2) }:{ lv_char+10(2) }:{ lv_char+12(2) }Z|.
+    " Strict ISO 8601 UTC with millisecond precision
+    rv_iso = |{ lv_ts TIMESTAMP = ISO TIMEZONE = 'UTC' }|.
   ENDMETHOD.
 
 
