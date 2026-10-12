@@ -91,12 +91,6 @@ CLASS zcl_tracex_http IMPLEMENTATION.
         " 1. Create Cloud HTTP destination and client
         DATA(lo_destination) = cl_http_destination_provider=>create_by_url( lv_target_url ).
         
-        " M3: Configure timeout on destination / client
-        TRY.
-            lo_destination->set_timeout( me->mv_timeout_sec ).
-          CATCH cx_root.
-        ENDTRY.
-
         lo_http_client = cl_web_http_client_manager=>create_by_http_destination( lo_destination ).
 
         " 2. Configure request headers according to TraceX API Specification
