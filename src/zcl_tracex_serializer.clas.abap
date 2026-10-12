@@ -62,8 +62,13 @@ CLASS zcl_tracex_serializer IMPLEMENTATION.
   METHOD format_iso_timestamp.
     DATA lv_ts TYPE timestampl.
     GET TIME STAMP FIELD lv_ts.
-    " Strict ISO 8601 UTC with millisecond precision
-    rv_iso = |{ lv_ts TIMESTAMP = ISO TIMEZONE = 'UTC' }|.
+    " Strict ISO 8601 UTC with millisecond precision and Z suffix
+    DATA(lv_raw) = |{ lv_ts TIMESTAMP = ISO TIMEZONE = 'UTC' }|.
+    REPLACE ALL OCCURRENCES OF ',' IN lv_raw WITH '.'.
+    IF lv_raw NP '*Z'.
+      lv_raw = |{ lv_raw }Z|.
+    ENDIF.
+    rv_iso = lv_raw.
   ENDMETHOD.
 
 
