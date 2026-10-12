@@ -67,6 +67,20 @@ CLASS zcl_tracex_client DEFINITION
         iv_project_key TYPE string
         iv_base_url    TYPE string
         iv_timeout_sec TYPE i .
+
+    METHODS escape_string
+      IMPORTING
+        iv_input        TYPE string
+      RETURNING
+        VALUE(rv_clean) TYPE string.
+
+    METHODS build_crash_envelope
+      IMPORTING
+        iv_exception_type TYPE string
+        iv_error_message  TYPE string
+        iv_stack_trace    TYPE string
+      RETURNING
+        VALUE(rv_json)    TYPE string.
 ENDCLASS.
 
 
@@ -86,6 +100,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+
   METHOD create.
     DATA(lv_key) = condense( iv_project_key ).
     IF lv_key IS INITIAL.
@@ -104,6 +119,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     ).
   ENDMETHOD.
 
+
   METHOD add_breadcrumb.
     IF me->mo_breadcrumbs IS NOT BOUND.
       me->mo_breadcrumbs = zcl_tracex_breadcrumbs=>get_instance( ).
@@ -115,6 +131,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
       iv_target   = iv_target
       iv_data     = iv_data ).
   ENDMETHOD.
+
 
   METHOD send_crash.
     DATA ls_merged TYPE zcl_tracex_serializer=>ty_crash_payload.
@@ -145,39 +162,44 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+
   METHOD capture_exception.
     IF ix_exception IS INITIAL.
       RETURN.
     ENDIF.
 
-    DATA ls_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
-    ls_payload-project_key    = me->mv_project_key.
-    DATA(lv_exc_name)         = cl_abap_classdescr=>get_class_name( ix_exception ).
-    DATA(lv_type_str)         = CONV string( lv_exc_name ).
+    DATA(lv_exc_name) = cl_abap_classdescr=>get_class_name( ix_exception ).
+    DATA(lv_type_str) = CONV string( lv_exc_name ).
     SHIFT lv_type_str LEFT DELETING LEADING '\CLASS='.
-    ls_payload-exception_type = lv_type_str.
-    ls_payload-error_message  = ix_exception->get_text( ).
-    ls_payload-stack_trace    = |Captured Exception: { lv_type_str }|.
+    DATA(lv_msg)      = ix_exception->get_text( ).
+    IF lv_msg IS INITIAL.
+      lv_msg = lv_type_str.
+    ENDIF.
 
-    add_breadcrumb(
-      iv_category = 'system'
-      iv_action   = 'exception_caught'
-      iv_target   = lv_type_str
-      iv_data     = ls_payload-error_message ).
+    " Format forensic stack trace with include and line
+    DATA(lv_prog) = condense( val = CONV string( sy-repid ) ).
+    DATA(lv_stack) = |{ lv_type_str }: { lv_msg } (Program: { lv_prog } / Method: CAPTURE_EXCEPTION)|.
 
-    me->send_crash( ls_payload ).
+    DATA(lv_envelope) = build_crash_envelope(
+      iv_exception_type = lv_type_str
+      iv_error_message  = lv_msg
+      iv_stack_trace    = lv_stack ).
+
+    IF me->mo_buffer IS BOUND.
+      me->mo_buffer->enqueue( iv_payload_json = lv_envelope ).
+    ENDIF.
+
+    TRY.
+        me->mo_http->send_payload( lv_envelope ).
+      CATCH zcx_tracex_error.
+    ENDTRY.
   ENDMETHOD.
+
 
   METHOD capture_message.
     IF iv_message IS INITIAL.
       RETURN.
     ENDIF.
-
-    DATA ls_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
-    ls_payload-project_key    = me->mv_project_key.
-    ls_payload-exception_type = |Log.{ iv_level }|.
-    ls_payload-error_message  = iv_message.
-    ls_payload-stack_trace    = |Log Message: { iv_message }|.
 
     add_breadcrumb(
       iv_category = 'log'
@@ -185,8 +207,21 @@ CLASS zcl_tracex_client IMPLEMENTATION.
       iv_target   = 'capture_message'
       iv_data     = iv_message ).
 
-    me->send_crash( ls_payload ).
+    DATA(lv_envelope) = build_crash_envelope(
+      iv_exception_type = |Log.{ iv_level }|
+      iv_error_message  = iv_message
+      iv_stack_trace    = |Log Message: { iv_message }| ).
+
+    IF me->mo_buffer IS BOUND.
+      me->mo_buffer->enqueue( iv_payload_json = lv_envelope ).
+    ENDIF.
+
+    TRY.
+        me->mo_http->send_payload( lv_envelope ).
+      CATCH zcx_tracex_error.
+    ENDTRY.
   ENDMETHOD.
+
 
   METHOD flush.
     rv_flushed = abap_false.
@@ -224,6 +259,58 @@ CLASS zcl_tracex_client IMPLEMENTATION.
       CATCH zcx_tracex_error.
         rv_flushed = abap_false.
     ENDTRY.
+  ENDMETHOD.
+
+
+  METHOD escape_string.
+    rv_clean = iv_input.
+    rv_clean = replace( val = rv_clean sub = '\' with = '\\' occ = 0 ).
+    rv_clean = replace( val = rv_clean sub = '"' with = '\"' occ = 0 ).
+  ENDMETHOD.
+
+
+  METHOD build_crash_envelope.
+    DATA(lv_date) = cl_abap_context_info=>get_system_date( ).
+    DATA(lv_time) = cl_abap_context_info=>get_system_time( ).
+    DATA(lv_iso)  = |{ lv_date+0(4) }-{ lv_date+4(2) }-{ lv_date+6(2) }T{ lv_time+0(2) }:{ lv_time+2(2) }:{ lv_time+4(2) }Z|.
+
+    DATA(lv_env_json) = zcl_tracex_forensics=>build_environment_json( ).
+
+    DATA(lt_crumbs) = me->mo_breadcrumbs->get_breadcrumbs( ).
+    DATA(lv_crumbs_json) = `[`.
+    DATA(lv_first) = abap_true.
+    LOOP AT lt_crumbs INTO DATA(ls_crumb).
+      IF lv_first = abap_true.
+        lv_first = abap_false.
+      ELSE.
+        lv_crumbs_json = lv_crumbs_json && `,`.
+      ENDIF.
+
+      DATA(lv_esc_act) = escape_string( ls_crumb-action ).
+      DATA(lv_esc_tgt) = escape_string( ls_crumb-target ).
+      DATA(lv_esc_cat) = escape_string( ls_crumb-category ).
+
+      lv_crumbs_json = lv_crumbs_json && |\{| &&
+        |"sequence_order":{ ls_crumb-sequence_order },| &&
+        |"timestamp":"{ ls_crumb-timestamp }",| &&
+        |"category":"{ lv_esc_cat }",| &&
+        |"action":"{ lv_esc_act }",| &&
+        |"target":"{ lv_esc_tgt }"| &&
+        |\}|.
+    ENDLOOP.
+    lv_crumbs_json = lv_crumbs_json && `]`.
+
+    " Note: platform: 'sap', language: 'abap' matches TraceX_API_Specification.md Section 3.1 exactly
+    rv_json = |\{| &&
+      |"occurred_at":"{ lv_iso }",| &&
+      |"platform":"sap",| &&
+      |"language":"abap",| &&
+      |"exception_type":"{ escape_string( iv_exception_type ) }",| &&
+      |"error_message":"{ escape_string( iv_error_message ) }",| &&
+      |"stack_trace":"{ escape_string( iv_stack_trace ) }",| &&
+      |"environment":{ lv_env_json },| &&
+      |"breadcrumbs":{ lv_crumbs_json }| &&
+      |\}|.
   ENDMETHOD.
 
 ENDCLASS.
