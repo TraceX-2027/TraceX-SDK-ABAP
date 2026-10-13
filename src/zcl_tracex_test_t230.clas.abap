@@ -62,9 +62,9 @@ CLASS zcl_tracex_test_t230 IMPLEMENTATION.
         " Simulate capturing 3 errors into the offline buffer
         DO 3 TIMES.
           DATA(lv_err_idx) = sy-index.
-          lo_client->capture_message(
-            iv_message = |Simulated Batch Crash { lv_err_idx }|
-            iv_level   = 'error'
+          lo_buffer->enqueue(
+            iv_event_id     = |evt_offline_{ lv_err_idx }|
+            iv_payload_json = |\{"event_type":"crash","message":"Simulated Batch Crash { lv_err_idx }"\}|
           ).
         ENDDO.
 

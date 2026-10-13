@@ -70,9 +70,9 @@ CLASS ltc_tracex_t230 IMPLEMENTATION.
     DATA(lo_buf) = lo_client->get_buffer( ).
     lo_buf->clear( ).
 
-    lo_client->capture_message(
-      iv_message = 'Test message for buffering'
-      iv_level   = 'warning' ).
+    DATA ls_async_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
+    ls_async_payload-error_message = 'Test message for buffering'.
+    lo_client->send_crash_async( ls_async_payload ).
 
     cl_abap_unit_assert=>assert_equals(
       act = lo_buf->get_count( )
