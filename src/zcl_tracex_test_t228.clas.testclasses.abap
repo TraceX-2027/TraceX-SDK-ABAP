@@ -73,12 +73,21 @@ CLASS ltc_tracex_t228 IMPLEMENTATION.
 
 
   METHOD test_url_builder_guard.
-    " Test that HTTP client handles empty base url without short dump
+    " N1: Test that HTTP client handles empty base url and returns safe default endpoint
     DATA(lo_http) = NEW zcl_tracex_http(
       iv_base_url    = ''
       iv_project_key = 'tracex_live_testkey'
     ).
     cl_abap_unit_assert=>assert_bound( act = lo_http ).
+
+    DATA(lv_url) = lo_http->build_full_url( ).
+    cl_abap_unit_assert=>assert_not_initial(
+      act = lv_url
+      msg = 'URL builder must return valid URL when base is empty' ).
+
+    cl_abap_unit_assert=>assert_true(
+      act = boolc( lv_url CS '/crashes' )
+      msg = 'Fallback URL must include /crashes endpoint' ).
   ENDMETHOD.
 
 ENDCLASS.

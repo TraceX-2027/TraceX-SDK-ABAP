@@ -54,7 +54,12 @@ CLASS zcl_tracex_test_t228 IMPLEMENTATION.
         DATA(lo_http) = NEW zcl_tracex_http(
           iv_base_url    = ''
           iv_project_key = 'tracex_live_testkey' ).
-        out->write( '[PASS] Test 5: HTTP Client handles empty base URL safely' ).
+        DATA(lv_built_url) = lo_http->build_full_url( ).
+        IF lv_built_url CS '/crashes'.
+          out->write( |[PASS] Test 5: HTTP Client builds safe default URL ({ lv_built_url })| ).
+        ELSE.
+          out->write( '[FAIL] Test 5: Fallback URL failed' ).
+        ENDIF.
 
         out->write( '=== ALL T2.28 TESTS COMPLETED WITH 0 DEFECTS! ===' ).
 

@@ -123,8 +123,8 @@ CLASS zcl_tracex_client IMPLEMENTATION.
 
 
   METHOD create_from_config.
-    " B1: Restore create_from_config factory method
-    DATA(ls_config) = zcl_tracex_config=>get_instance( )->get_config( iv_project_id ).
+    " B1: Restore create_from_config factory method (static call)
+    DATA(ls_config) = zcl_tracex_config=>get_config( iv_project_id ).
 
     ro_client = create(
       iv_project_key = ls_config-api_key

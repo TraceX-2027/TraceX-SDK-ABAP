@@ -25,15 +25,15 @@ CLASS zcl_tracex_http DEFINITION
       RAISING
         zcx_tracex_error .
 
+    METHODS build_full_url
+      RETURNING
+        VALUE(rv_url) TYPE string .
+
   PROTECTED SECTION.
   PRIVATE SECTION.
     DATA mv_base_url    TYPE string .
     DATA mv_project_key TYPE string .
     DATA mv_timeout_sec TYPE i .
-
-    METHODS build_full_url
-      RETURNING
-        VALUE(rv_url) TYPE string .
 ENDCLASS.
 
 
@@ -93,10 +93,12 @@ CLASS zcl_tracex_http IMPLEMENTATION.
         
         lo_http_client = cl_web_http_client_manager=>create_by_http_destination( lo_destination ).
 
-        " 2. Configure request headers according to TraceX API Specification
+        " 2. Configure request headers according to TraceX API Specification & propagate timeout
         DATA(lo_request) = lo_http_client->get_http_request( ).
         lo_request->set_header_field( i_name = 'Content-Type' i_value = 'application/json' ).
         lo_request->set_header_field( i_name = 'X-TraceX-Key' i_value = me->mv_project_key ).
+        lo_request->set_header_field( i_name = 'X-TraceX-Timeout' i_value = |{ me->mv_timeout_sec }| ).
+        lo_request->set_header_field( i_name = 'Request-Timeout' i_value = |{ me->mv_timeout_sec }| ).
         lo_request->set_text( iv_json_payload ).
 
         " 3. Dispatch POST request
