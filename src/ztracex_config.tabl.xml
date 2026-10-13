@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <abapGit version="v1.0.0" serializer="LCL_OBJECT_TABL" serializer_version="v1.0.0">
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
@@ -41,6 +41,7 @@
      <NOTNULL>X</NOTNULL>
      <DATATYPE>CHAR</DATATYPE>
      <LENG>000036</LENG>
+     <LOWERCASE>X</LOWERCASE>
      <MASK>  CHAR</MASK>
     </DD03P>
     <DD03P>
@@ -50,6 +51,7 @@
      <INTLEN>000256</INTLEN>
      <DATATYPE>CHAR</DATATYPE>
      <LENG>000128</LENG>
+     <LOWERCASE>X</LOWERCASE>
      <MASK>  CHAR</MASK>
     </DD03P>
     <DD03P>
@@ -59,6 +61,7 @@
      <INTLEN>000256</INTLEN>
      <DATATYPE>CHAR</DATATYPE>
      <LENG>000128</LENG>
+     <LOWERCASE>X</LOWERCASE>
      <MASK>  CHAR</MASK>
     </DD03P>
     <DD03P>
@@ -68,6 +71,7 @@
      <INTLEN>000040</INTLEN>
      <DATATYPE>CHAR</DATATYPE>
      <LENG>000020</LENG>
+     <LOWERCASE>X</LOWERCASE>
      <MASK>  CHAR</MASK>
     </DD03P>
     <DD03P>
@@ -94,6 +98,14 @@
      <TABNAME>ZTRACEX_CONFIG</TABNAME>
      <CCLASS>CUS_DEV_SUP_RO</CCLASS>
     </TDDAT>
+    <TVDIR>
+     <TABNAME>ZTRACEX_CONFIG</TABNAME>
+     <AREA>ZTRACEX_CONFIG_FG</AREA>
+     <TYPE>1</TYPE>
+     <LISTE>0001</LISTE>
+     <BAUSTEINE>X</BAUSTEINE>
+     <MAINTVIEW>ZTRACEX_CONFIG</MAINTVIEW>
+    </TVDIR>
    </TABL_EXTRAS>
   </asx:values>
  </asx:abap>

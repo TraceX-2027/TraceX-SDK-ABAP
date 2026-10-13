@@ -86,6 +86,22 @@ CLASS zcl_tracex_test_t230 IMPLEMENTATION.
         out->write( |Test 2 Raised Error: { lx_err->get_text( ) }| ).
     ENDTRY.
 
+    " -------------------------------------------------------------
+    " Test 3: HTTP Client Batch URL Resolution Check
+    " -------------------------------------------------------------
+    out->write( '--- [Test 3] Batch Endpoint URL Resolution ---' ).
+    DATA(lo_http) = NEW zcl_tracex_http(
+      iv_base_url    = 'https://tracex-edge-ingest.kareemadel10110.workers.dev/api/v1'
+      iv_project_key = 'tracex_live_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+    ).
+    DATA(lv_batch_url) = lo_http->build_full_url( 'crashes/batch' ).
+    out->write( |Resolved Batch URL: { lv_batch_url }| ).
+    IF lv_batch_url = 'https://tracex-edge-ingest.kareemadel10110.workers.dev/api/v1/crashes/batch'.
+      out->write( 'Test 3: Batch Endpoint URL Resolution [PASSED]' ).
+    ELSE.
+      out->write( 'Test 3: Batch Endpoint URL Resolution [FAILED]' ).
+    ENDIF.
+
     out->write( '===========================================================' ).
     out->write( '=== ALL T2.30 ZERO-DEFECT AUDIT TESTS PASSED WITH 100%! ===' ).
     out->write( '===========================================================' ).

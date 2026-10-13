@@ -13,16 +13,18 @@ CLASS zcl_tracex_buffer DEFINITION
         enqueued_at  TYPE string,
         retry_count  TYPE i,
       END OF ty_buffered_event,
-      tt_buffered_events TYPE STANDARD TABLE OF ty_buffered_event WITH EMPTY KEY.
+      tt_buffered_events TYPE STANDARD TABLE OF ty_buffered_event WITH DEFAULT KEY.
 
     CLASS-METHODS get_instance
       RETURNING
         VALUE(ro_instance) TYPE REF TO zcl_tracex_buffer.
 
+    METHODS constructor.
+
     METHODS enqueue
       IMPORTING
-        iv_payload_json TYPE string
-        iv_event_id     TYPE string OPTIONAL.
+        !iv_payload_json TYPE string
+        !iv_event_id     TYPE string OPTIONAL.
 
     METHODS peek_all
       RETURNING
@@ -41,8 +43,9 @@ CLASS zcl_tracex_buffer DEFINITION
   PROTECTED SECTION.
   PRIVATE SECTION.
     CLASS-DATA go_instance TYPE REF TO zcl_tracex_buffer.
-    DATA mt_buffer        TYPE tt_buffered_events.
-    DATA mv_dropped_count TYPE i VALUE 0.
+    DATA mt_buffer         TYPE tt_buffered_events.
+    DATA mv_dropped_count  TYPE i VALUE 0.
+    DATA mv_sequence_order TYPE i VALUE 0.
 ENDCLASS.
 
 
@@ -51,9 +54,16 @@ CLASS zcl_tracex_buffer IMPLEMENTATION.
 
   METHOD get_instance.
     IF go_instance IS NOT BOUND.
-      go_instance = NEW #( ).
+      go_instance = NEW zcl_tracex_buffer( ).
     ENDIF.
     ro_instance = go_instance.
+  ENDMETHOD.
+
+
+  METHOD constructor.
+    CLEAR mt_buffer.
+    mv_dropped_count  = 0.
+    mv_sequence_order = 0.
   ENDMETHOD.
 
 
@@ -68,14 +78,13 @@ CLASS zcl_tracex_buffer IMPLEMENTATION.
       mv_dropped_count = mv_dropped_count + 1.
     ENDWHILE.
 
-    " 2. Generate ISO UTC timestamp
-    DATA(lv_date) = cl_abap_context_info=>get_system_date( ).
-    DATA(lv_time) = cl_abap_context_info=>get_system_time( ).
-    DATA(lv_iso)  = |{ lv_date+0(4) }-{ lv_date+4(2) }-{ lv_date+6(2) }T{ lv_time+0(2) }:{ lv_time+2(2) }:{ lv_time+4(2) }Z|.
+    " 2. M1: Strict ISO-8601 UTC timestamp with millisecond precision and Z suffix
+    DATA(lv_iso) = zcl_tracex_serializer=>format_iso_timestamp( ).
 
-    DATA(lv_id) = iv_event_id.
+    mv_sequence_order = mv_sequence_order + 1.
+    DATA(lv_id) = condense( val = iv_event_id ).
     IF lv_id IS INITIAL.
-      lv_id = |evt_{ cl_abap_context_info=>get_system_time( ) }|.
+      lv_id = |evt_{ mv_sequence_order }|.
     ENDIF.
 
     " 3. Append to internal buffer
@@ -95,7 +104,8 @@ CLASS zcl_tracex_buffer IMPLEMENTATION.
 
   METHOD clear.
     CLEAR mt_buffer.
-    mv_dropped_count = 0.
+    mv_dropped_count  = 0.
+    mv_sequence_order = 0.
   ENDMETHOD.
 
 
