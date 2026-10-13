@@ -94,9 +94,17 @@ CLASS ltc_tracex_t229 IMPLEMENTATION.
 
     lo_client->add_breadcrumb(
       iv_category = 'navigation'
-      iv_action   = 'NAV_TO_CART' ).
+      iv_action   = 'NAV_TO_CART'
+      iv_data     = '{"sku":"ITEM-123","qty":2}' ).
 
     cl_abap_unit_assert=>assert_bound( act = lo_client ).
+
+    DATA ls_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
+    ls_payload-exception_type = 'CX_SY_ZERODIVIDE'.
+    ls_payload-error_message  = 'Zero divide'.
+
+    DATA(lv_json) = zcl_tracex_serializer=>serialize_crash( ls_payload ).
+    cl_abap_unit_assert=>assert_not_initial( act = lv_json ).
   ENDMETHOD.
 
 ENDCLASS.

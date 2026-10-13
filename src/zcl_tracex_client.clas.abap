@@ -188,21 +188,31 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     IF ls_merged_payload-breadcrumbs IS INITIAL AND me->mo_breadcrumbs IS BOUND.
       DATA(lt_ring_crumbs) = me->mo_breadcrumbs->get_breadcrumbs( ).
 
-      " N1: Re-index breadcrumbs sequentially 1..N and B3: map data
+      " N1: Re-index breadcrumbs sequentially 1..N and B1: serialize data as JSON object
       LOOP AT lt_ring_crumbs INTO DATA(ls_rc).
         DATA ls_bc TYPE zcl_tracex_serializer=>ty_breadcrumb.
+        CLEAR ls_bc.
         ls_bc-sequence_order = sy-tabix.
         ls_bc-timestamp      = ls_rc-timestamp.
         ls_bc-category       = ls_rc-category.
         ls_bc-action         = ls_rc-action.
         ls_bc-target         = ls_rc-target.
 
-        " B3: Assign breadcrumb data payload
+        " B1: Assign breadcrumb data payload as valid JSON object
         IF ls_rc-data IS NOT INITIAL.
-          DATA lr_data TYPE REF TO data.
-          DATA(lv_raw_data) = ls_rc-data.
-          GET REFERENCE OF lv_raw_data INTO lr_data.
-          ls_bc-data = lr_data.
+          TRY.
+              DATA lr_obj TYPE REF TO data.
+              lr_obj = /ui2/cl_json=>generate( json = ls_rc-data ).
+              ls_bc-data = lr_obj.
+            CATCH cx_root.
+              DATA: BEGIN OF ls_raw_wrap,
+                      raw TYPE string,
+                    END OF ls_raw_wrap.
+              ls_raw_wrap-raw = ls_rc-data.
+              DATA lr_fallback TYPE REF TO data.
+              GET REFERENCE OF ls_raw_wrap INTO lr_fallback.
+              ls_bc-data = lr_fallback.
+          ENDTRY.
         ENDIF.
 
         APPEND ls_bc TO ls_merged_payload-breadcrumbs.
