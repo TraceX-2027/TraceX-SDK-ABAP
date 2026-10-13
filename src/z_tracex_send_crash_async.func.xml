@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_FUNC" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <FUNCNAME>Z_TRACEX_SEND_CRASH_ASYNC</FUNCNAME>
+   <GLOBAL_FLAG>R</GLOBAL_FLAG>
+   <REMOTE_CALL>R</REMOTE_CALL>
+   <SHORT_TEXT>TraceX Asynchronous Background Crash Dispatch via qRFC</SHORT_TEXT>
+   <IMPORT>
+    <RSIMP>
+     <PARAMETER>IV_PAYLOAD_JSON</PARAMETER>
+     <TYP>STRING</TYP>
+    </RSIMP>
+    <RSIMP>
+     <PARAMETER>IV_PROJECT_KEY</PARAMETER>
+     <TYP>STRING</TYP>
+    </RSIMP>
+    <RSIMP>
+     <PARAMETER>IV_BASE_URL</PARAMETER>
+     <OPTIONAL>X</OPTIONAL>
+     <TYP>STRING</TYP>
+    </RSIMP>
+    <RSIMP>
+     <PARAMETER>IV_TIMEOUT_SEC</PARAMETER>
+     <DEFAULT>3</DEFAULT>
+     <OPTIONAL>X</OPTIONAL>
+     <TYP>I</TYP>
+    </RSIMP>
+   </IMPORT>
+  </asx:values>
+ </asx:abap>
+</abapGit>
