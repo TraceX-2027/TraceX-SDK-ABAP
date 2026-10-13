@@ -13,7 +13,8 @@ CLASS zcl_tracex_breadcrumbs DEFINITION
         target         TYPE string,
         data           TYPE string,
       END OF ty_breadcrumb,
-      tt_breadcrumbs TYPE STANDARD TABLE OF ty_breadcrumb WITH EMPTY KEY.
+
+      tt_breadcrumbs TYPE STANDARD TABLE OF ty_breadcrumb WITH DEFAULT KEY.
 
     CONSTANTS mc_max_capacity TYPE i VALUE 50.
 
@@ -21,12 +22,14 @@ CLASS zcl_tracex_breadcrumbs DEFINITION
       RETURNING
         VALUE(ro_instance) TYPE REF TO zcl_tracex_breadcrumbs.
 
+    METHODS constructor.
+
     METHODS add_breadcrumb
       IMPORTING
-        iv_category TYPE string OPTIONAL
-        iv_action   TYPE string OPTIONAL
-        iv_target   TYPE string OPTIONAL
-        iv_data     TYPE string OPTIONAL.
+        !iv_category TYPE string OPTIONAL
+        !iv_action   TYPE string OPTIONAL
+        !iv_target   TYPE string OPTIONAL
+        !iv_data     TYPE string OPTIONAL.
 
     METHODS get_breadcrumbs
       RETURNING
@@ -38,17 +41,17 @@ CLASS zcl_tracex_breadcrumbs DEFINITION
       RETURNING
         VALUE(rv_count) TYPE i.
 
+    METHODS redact_sensitive_info
+      IMPORTING
+        !iv_text           TYPE string
+      RETURNING
+        VALUE(rv_redacted) TYPE string.
+
   PROTECTED SECTION.
   PRIVATE SECTION.
     CLASS-DATA go_instance TYPE REF TO zcl_tracex_breadcrumbs.
-    DATA mt_breadcrumbs   TYPE tt_breadcrumbs.
+    DATA mt_breadcrumbs    TYPE tt_breadcrumbs.
     DATA mv_sequence_order TYPE i VALUE 0.
-
-    METHODS redact_sensitive_info
-      IMPORTING
-        iv_text          TYPE string
-      RETURNING
-        VALUE(rv_redacted) TYPE string.
 ENDCLASS.
 
 
@@ -57,46 +60,50 @@ CLASS zcl_tracex_breadcrumbs IMPLEMENTATION.
 
   METHOD get_instance.
     IF go_instance IS NOT BOUND.
-      go_instance = NEW #( ).
+      go_instance = NEW zcl_tracex_breadcrumbs( ).
     ENDIF.
     ro_instance = go_instance.
   ENDMETHOD.
 
 
-  METHOD add_breadcrumb.
-    " 1. Defensive parameter defaults and whitespace trimming
-    DATA(lv_category) = condense( val = COND string( WHEN iv_category IS NOT INITIAL THEN iv_category ELSE 'system' ) ).
-    DATA(lv_action)   = condense( val = COND string( WHEN iv_action IS NOT INITIAL THEN iv_action ELSE 'log' ) ).
-    DATA(lv_target)   = condense( val = COND string( WHEN iv_target IS NOT INITIAL THEN iv_target ELSE '' ) ).
+  METHOD constructor.
+    CLEAR mt_breadcrumbs.
+    mv_sequence_order = 0.
+  ENDMETHOD.
 
-    " 2. Clamp string lengths to backend schema maximums
-    IF strlen( lv_category ) > 50.
-      lv_category = substring( val = lv_category off = 0 len = 50 ).
+
+  METHOD add_breadcrumb.
+    " 1. Length clamping & sanitization (Max 255 chars)
+    DATA(lv_category) = condense( val = iv_category ).
+    IF strlen( lv_category ) > 255.
+      lv_category = substring( val = lv_category off = 0 len = 255 ).
     ENDIF.
-    IF strlen( lv_action ) > 150.
-      lv_action = substring( val = lv_action off = 0 len = 150 ).
+
+    DATA(lv_action) = condense( val = iv_action ).
+    IF strlen( lv_action ) > 255.
+      lv_action = substring( val = lv_action off = 0 len = 255 ).
     ENDIF.
+
+    DATA(lv_target) = condense( val = iv_target ).
     IF strlen( lv_target ) > 255.
       lv_target = substring( val = lv_target off = 0 len = 255 ).
     ENDIF.
 
-    " 3. Redact any sensitive credentials in data payload
+    " 2. M3: Redact sensitive credentials in data payload without breaking JSON syntax
     DATA(lv_data) = redact_sensitive_info( iv_data ).
 
-    " 4. Monotonic increment of sequence order
+    " 3. Monotonic increment of sequence order
     mv_sequence_order = mv_sequence_order + 1.
 
-    " 5. Safe FIFO Ring Buffer eviction (Max 50 items)
+    " 4. Safe FIFO Ring Buffer eviction (Max 50 items)
     WHILE lines( mt_breadcrumbs ) >= mc_max_capacity.
       DELETE mt_breadcrumbs INDEX 1.
     ENDWHILE.
 
-    " 6. ISO-8601 UTC timestamp generation
-    DATA(lv_date) = cl_abap_context_info=>get_system_date( ).
-    DATA(lv_time) = cl_abap_context_info=>get_system_time( ).
-    DATA(lv_iso)  = |{ lv_date+0(4) }-{ lv_date+4(2) }-{ lv_date+6(2) }T{ lv_time+0(2) }:{ lv_time+2(2) }:{ lv_time+4(2) }Z|.
+    " 5. M1: Strict ISO-8601 UTC timestamp with millisecond precision and Z suffix
+    DATA(lv_iso) = zcl_tracex_serializer=>format_iso_timestamp( ).
 
-    " 7. Append safe breadcrumb to buffer
+    " 6. Append safe breadcrumb to buffer
     APPEND VALUE ty_breadcrumb(
       sequence_order = mv_sequence_order
       timestamp      = lv_iso
@@ -139,17 +146,16 @@ CLASS zcl_tracex_breadcrumbs IMPLEMENTATION.
       with = '$1[REDACTED]'
       occ  = 0 ).
 
-    " Redact Passwords in connection strings or key-value pairs
+    " M3: Exclude quotes and curly braces from matching characters: [^\s,;"'\}]+
     rv_redacted = replace(
       val  = rv_redacted
-      pcre = '(?i)\b((?:Password|Pwd|Passphrase)\s*[:=]\s*)[^\s,;]+'
+      pcre = '(?i)("?(?:Password|Pwd|Passphrase)"?\s*[:=]\s*"?)[^\s,;"''\}]+'
       with = '$1[REDACTED]'
       occ  = 0 ).
 
-    " Redact API keys / tokens
     rv_redacted = replace(
       val  = rv_redacted
-      pcre = '(?i)\b((?:api[_-]?key|x-api-key|apikey|access[_-]?key|token|secret)\s*[:=]\s*)[^\s,;]+'
+      pcre = '(?i)("?(?:api[_-]?key|x-api-key|apikey|access[_-]?key|token|secret)"?\s*[:=]\s*"?)[^\s,;"''\}]+'
       with = '$1[REDACTED]'
       occ  = 0 ).
   ENDMETHOD.
