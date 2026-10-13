@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_MSAG" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <T100A>
+    <ARBGB>ZTRACEX</ARBGB>
+    <MASTERLANG>E</MASTERLANG>
+    <STEXT>TraceX SDK Messages</STEXT>
+   </T100A>
+   <T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZTRACEX</ARBGB>
+     <MSGNR>001</MSGNR>
+     <TEXT>Network failure: &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZTRACEX</ARBGB>
+     <MSGNR>002</MSGNR>
+     <TEXT>Unauthorized (401): Invalid API key &amp;1</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZTRACEX</ARBGB>
+     <MSGNR>003</MSGNR>
+     <TEXT>Rate limited (429): Retry after &amp;1 sec</TEXT>
+    </T100>
+    <T100>
+     <SPRSL>E</SPRSL>
+     <ARBGB>ZTRACEX</ARBGB>
+     <MSGNR>004</MSGNR>
+     <TEXT>Payload invalid (400): &amp;1</TEXT>
+    </T100>
+   </T100>
+  </asx:values>
+ </asx:abap>
+</abapGit>
