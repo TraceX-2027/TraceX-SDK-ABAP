@@ -93,6 +93,9 @@ CLASS zcl_tracex_config IMPLEMENTATION.
     rs_config-project_id  = condense( val = CONV string( ls_db-project_id ) ).
     rs_config-api_key     = condense( val = CONV string( ls_db-api_key ) ).
     rs_config-base_url    = condense( val = CONV string( ls_db-base_url ) ).
+    IF rs_config-base_url IS INITIAL.
+      rs_config-base_url = zcl_tracex_client=>co_default_base_url.
+    ENDIF.
     rs_config-environment = condense( val = CONV string( ls_db-environment ) ).
     rs_config-timeout_sec = ls_db-timeout_sec.
     rs_config-is_active   = ls_db-is_active.

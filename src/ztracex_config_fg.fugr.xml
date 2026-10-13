@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_FUGR" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <AREAT>Table Maintenance for ZTRACEX_CONFIG</AREAT>
+   <INCLUDES>
+    <SOBJ_NAME>LZTRACEX_CONFIG_FGF00</SOBJ_NAME>
+    <SOBJ_NAME>LZTRACEX_CONFIG_FGI00</SOBJ_NAME>
+    <SOBJ_NAME>LZTRACEX_CONFIG_FGT00</SOBJ_NAME>
+    <SOBJ_NAME>LZTRACEX_CONFIG_FGTOP</SOBJ_NAME>
+    <SOBJ_NAME>SAPLZTRACEX_CONFIG_FG</SOBJ_NAME>
+   </INCLUDES>
+  </asx:values>
+ </asx:abap>
+</abapGit>
