@@ -365,13 +365,10 @@ CLASS zcl_tracex_client IMPLEMENTATION.
 
     DATA(lv_json) = zcl_tracex_serializer=>serialize_crash( ls_merged_payload ).
 
-    " B1: Non-blocking asynchronous dispatch via background RFC
-    CALL FUNCTION 'Z_TRACEX_SEND_CRASH_ASYNC' IN BACKGROUND TASK
-      EXPORTING
-        iv_payload_json = lv_json
-        iv_project_key  = me->mv_project_key
-        iv_base_url     = me->mv_base_url
-        iv_timeout_sec  = me->mv_timeout_sec.
+    " Non-blocking asynchronous dispatch via offline buffer (ABAP Cloud compliant)
+    IF me->mo_buffer IS BOUND.
+      me->mo_buffer->enqueue( iv_payload_json = lv_json ).
+    ENDIF.
 
     IF me->mo_breadcrumbs IS BOUND.
       me->mo_breadcrumbs->clear( ).
