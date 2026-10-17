@@ -61,9 +61,33 @@ CLASS zcl_tracex_client DEFINITION
       RAISING
         zcx_tracex_error .
 
+    METHODS capture_message
+      IMPORTING
+        !iv_message        TYPE string
+        !iv_level          TYPE string DEFAULT 'info'
+      RETURNING
+        VALUE(rs_response) TYPE zcl_tracex_http=>ty_ingest_response
+      RAISING
+        zcx_tracex_error .
+
+    METHODS send_crash_async
+      IMPORTING
+        !is_payload TYPE zcl_tracex_serializer=>ty_crash_payload
+      RAISING
+        zcx_tracex_error .
+
+    METHODS flush
+      RETURNING
+        VALUE(rv_flushed) TYPE abap_bool.
+
+    METHODS get_buffer
+      RETURNING
+        VALUE(ro_buffer) TYPE REF TO zcl_tracex_buffer.
+
   PROTECTED SECTION.
   PRIVATE SECTION.
     DATA mo_breadcrumbs TYPE REF TO zcl_tracex_breadcrumbs .
+    DATA mo_buffer      TYPE REF TO zcl_tracex_buffer .
 
     METHODS constructor
       IMPORTING
@@ -85,6 +109,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     me->mv_environment  = COND string( WHEN iv_environment IS NOT INITIAL THEN iv_environment ELSE 'production' ).
     me->mv_timeout_sec  = iv_timeout_sec.
     me->mo_breadcrumbs  = NEW zcl_tracex_breadcrumbs( ).
+    me->mo_buffer       = zcl_tracex_buffer=>get_instance( ).
   ENDMETHOD.
 
 
@@ -133,7 +158,6 @@ CLASS zcl_tracex_client IMPLEMENTATION.
 
 
   METHOD create_from_config.
-    " B4: Restore create_from_config factory method (static call)
     DATA(ls_config) = zcl_tracex_config=>get_config( iv_project_id ).
 
     ro_client = create(
@@ -164,7 +188,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     DATA ls_merged_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
     ls_merged_payload = is_payload.
 
-    " 1. B2: Populate environment if missing
+    " 1. Populate environment if missing
     IF ls_merged_payload-environment-app_version IS INITIAL.
       DATA(ls_env) = zcl_tracex_forensics=>get_environment( ).
       ls_merged_payload-environment-app_version        = ls_env-app_version.
@@ -179,7 +203,7 @@ CLASS zcl_tracex_client IMPLEMENTATION.
       ls_merged_payload-environment-is_low_memory      = ls_env-is_low_memory.
     ENDIF.
 
-    " 2. B1: Harvest call stack if missing
+    " 2. Harvest call stack if missing
     IF ls_merged_payload-stack_trace IS INITIAL OR ls_merged_payload-stack_trace = 'Unknown ABAP Stack (Empty)'.
       ls_merged_payload-stack_trace = zcl_tracex_forensics=>get_call_stack( ).
     ENDIF.
@@ -188,7 +212,6 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     IF ls_merged_payload-breadcrumbs IS INITIAL AND me->mo_breadcrumbs IS BOUND.
       DATA(lt_ring_crumbs) = me->mo_breadcrumbs->get_breadcrumbs( ).
 
-      " N1: Re-index breadcrumbs sequentially 1..N and B1: serialize data as JSON object
       LOOP AT lt_ring_crumbs INTO DATA(ls_rc).
         DATA ls_bc TYPE zcl_tracex_serializer=>ty_breadcrumb.
         CLEAR ls_bc.
@@ -198,7 +221,6 @@ CLASS zcl_tracex_client IMPLEMENTATION.
         ls_bc-action         = ls_rc-action.
         ls_bc-target         = ls_rc-target.
 
-        " B1: Assign breadcrumb data payload as valid JSON object
         IF ls_rc-data IS NOT INITIAL.
           TRY.
               DATA lr_obj TYPE REF TO data.
@@ -228,9 +250,17 @@ CLASS zcl_tracex_client IMPLEMENTATION.
       iv_timeout_sec = me->mv_timeout_sec
     ).
 
-    rs_response = lo_http->send_payload( lv_json ).
+    TRY.
+        rs_response = lo_http->send_payload( lv_json ).
+      CATCH zcx_tracex_error INTO DATA(lx_send_err).
+        " B3: Buffer event offline ONLY on dispatch failure to eliminate duplication
+        IF me->mo_buffer IS BOUND.
+          me->mo_buffer->enqueue( iv_payload_json = lv_json ).
+        ENDIF.
+        RAISE EXCEPTION lx_send_err.
+    ENDTRY.
 
-    " 5. M2: Clear breadcrumb ring buffer post-crash to prevent cross-incident contamination
+    " 5. Clear breadcrumb ring buffer post-crash
     IF me->mo_breadcrumbs IS BOUND.
       me->mo_breadcrumbs->clear( ).
     ENDIF.
@@ -245,7 +275,6 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     DATA ls_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
     ls_payload-project_key = me->mv_project_key.
 
-    " Format exception type by stripping \CLASS=
     DATA(lv_raw_type) = cl_abap_classdescr=>get_class_name( ix_exception ).
     IF lv_raw_type CP '\CLASS=*'.
       ls_payload-exception_type = substring( val = lv_raw_type off = 7 ).
@@ -254,11 +283,8 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     ENDIF.
 
     ls_payload-error_message = ix_exception->get_text( ).
+    ls_payload-stack_trace   = zcl_tracex_forensics=>get_call_stack( ).
 
-    " B1: Extract execution call stack via forensics
-    ls_payload-stack_trace = zcl_tracex_forensics=>get_call_stack( ).
-
-    " B2: Collect environment metadata via forensics
     DATA(ls_env) = zcl_tracex_forensics=>get_environment( ).
     ls_payload-environment-app_version        = ls_env-app_version.
     ls_payload-environment-runtime_version    = ls_env-runtime_version.
@@ -271,8 +297,132 @@ CLASS zcl_tracex_client IMPLEMENTATION.
     ls_payload-environment-battery_level      = ls_env-battery_level.
     ls_payload-environment-is_low_memory      = ls_env-is_low_memory.
 
-    " Dispatch and clear breadcrumbs
     rs_response = me->send_crash( ls_payload ).
+  ENDMETHOD.
+
+
+  METHOD capture_message.
+    IF iv_message IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_level) = condense( val = iv_level ).
+    IF lv_level IS INITIAL.
+      lv_level = 'info'.
+    ENDIF.
+
+    " 1. Record diagnostic breadcrumb
+    add_breadcrumb(
+      iv_category = 'log'
+      iv_action   = lv_level
+      iv_target   = 'capture_message'
+      iv_data     = iv_message ).
+
+    " 2. Assemble crash payload for message event
+    DATA ls_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
+    ls_payload-project_key    = me->mv_project_key.
+    ls_payload-exception_type = |Log.{ lv_level }|.
+    ls_payload-error_message  = iv_message.
+    ls_payload-stack_trace    = |Log Message: { iv_message }|.
+
+    DATA(ls_env) = zcl_tracex_forensics=>get_environment( ).
+    ls_payload-environment-app_version        = ls_env-app_version.
+    ls_payload-environment-runtime_version    = ls_env-runtime_version.
+    ls_payload-environment-os_name            = ls_env-os_name.
+    ls_payload-environment-os_version         = ls_env-os_version.
+    ls_payload-environment-device_model       = ls_env-device_model.
+    ls_payload-environment-is_physical_device = ls_env-is_physical_device.
+    ls_payload-environment-free_ram_mb        = ls_env-free_ram_mb.
+    ls_payload-environment-total_ram_mb       = ls_env-total_ram_mb.
+    ls_payload-environment-battery_level      = ls_env-battery_level.
+    ls_payload-environment-is_low_memory      = ls_env-is_low_memory.
+
+    rs_response = me->send_crash( ls_payload ).
+  ENDMETHOD.
+
+
+  METHOD send_crash_async.
+    DATA ls_merged_payload TYPE zcl_tracex_serializer=>ty_crash_payload.
+    ls_merged_payload = is_payload.
+
+    IF ls_merged_payload-environment-app_version IS INITIAL.
+      DATA(ls_env) = zcl_tracex_forensics=>get_environment( ).
+      ls_merged_payload-environment-app_version        = ls_env-app_version.
+      ls_merged_payload-environment-runtime_version    = ls_env-runtime_version.
+      ls_merged_payload-environment-os_name            = ls_env-os_name.
+      ls_merged_payload-environment-os_version         = ls_env-os_version.
+      ls_merged_payload-environment-device_model       = ls_env-device_model.
+      ls_merged_payload-environment-is_physical_device = ls_env-is_physical_device.
+      ls_merged_payload-environment-free_ram_mb        = ls_env-free_ram_mb.
+      ls_merged_payload-environment-total_ram_mb       = ls_env-total_ram_mb.
+      ls_merged_payload-environment-battery_level      = ls_env-battery_level.
+      ls_merged_payload-environment-is_low_memory      = ls_env-is_low_memory.
+    ENDIF.
+
+    IF ls_merged_payload-stack_trace IS INITIAL OR ls_merged_payload-stack_trace = 'Unknown ABAP Stack (Empty)'.
+      ls_merged_payload-stack_trace = zcl_tracex_forensics=>get_call_stack( ).
+    ENDIF.
+
+    DATA(lv_json) = zcl_tracex_serializer=>serialize_crash( ls_merged_payload ).
+
+    " Non-blocking asynchronous dispatch via offline buffer (ABAP Cloud compliant)
+    IF me->mo_buffer IS BOUND.
+      me->mo_buffer->enqueue( iv_payload_json = lv_json ).
+    ENDIF.
+
+    IF me->mo_breadcrumbs IS BOUND.
+      me->mo_breadcrumbs->clear( ).
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD flush.
+    rv_flushed = abap_false.
+    IF me->mo_buffer IS NOT BOUND.
+      rv_flushed = abap_true.
+      RETURN.
+    ENDIF.
+
+    DATA(lt_pending) = me->mo_buffer->peek_all( ).
+    IF lines( lt_pending ) = 0.
+      rv_flushed = abap_true.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_events_json) = `[`.
+    DATA(lv_first) = abap_true.
+    LOOP AT lt_pending INTO DATA(ls_item).
+      IF lv_first = abap_true.
+        lv_first = abap_false.
+      ELSE.
+        lv_events_json = lv_events_json && `,`.
+      ENDIF.
+      lv_events_json = lv_events_json && ls_item-payload_json.
+    ENDLOOP.
+    lv_events_json = lv_events_json && `]`.
+
+    DATA(lv_batch_payload) = |\{"project_key":"{ me->mv_project_key }","events":{ lv_events_json }\}|.
+
+    DATA(lo_http) = NEW zcl_tracex_http(
+      iv_base_url    = me->mv_base_url
+      iv_project_key = me->mv_project_key
+      iv_timeout_sec = me->mv_timeout_sec
+    ).
+
+    TRY.
+        DATA(ls_res) = lo_http->send_batch( lv_batch_payload ).
+        IF ls_res-status = 'accepted'.
+          me->mo_buffer->clear( ).
+          rv_flushed = abap_true.
+        ENDIF.
+      CATCH zcx_tracex_error.
+        rv_flushed = abap_false.
+    ENDTRY.
+  ENDMETHOD.
+
+
+  METHOD get_buffer.
+    ro_buffer = me->mo_buffer.
   ENDMETHOD.
 
 ENDCLASS.
